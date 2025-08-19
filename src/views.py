@@ -23,9 +23,6 @@ def parse_date_(date_str: str) -> datetime:
     return pd.to_datetime(date_str)
 
 
-def filter_operations_by_date(
-    date_str: str, filepath: str = r"C:\Users\PC\PycharmProjects\course_work_1\data\operations.csv"
-) -> pd.DataFrame:
 def filter_operations_by_date(date_str: str, filepath: str = str(DATA_PATH)) -> pd.DataFrame:
     """Возвращает операции из CSV-файла в период с начала месяца по указанную дату."""
     current_date = parse_date(date_str)
@@ -35,7 +32,13 @@ def filter_operations_by_date(date_str: str, filepath: str = str(DATA_PATH)) -> 
     df = pd.read_csv(filepath, sep=",", parse_dates=["Дата операции"], dayfirst=True)
 
     df.rename(
-@@ -36,15 +42,18 @@ def filter_operations_by_date(
+        columns={
+            "Дата операции": "date",
+            "Сумма операции": "amount",
+            "Сумма платежа": "payment_amount",
+            "Категория": "category",
+            "Описание": "description",
+            "Номер карты": "card",
         },
         inplace=True,
     )
@@ -48,18 +51,20 @@ def filter_operations_by_date(date_str: str, filepath: str = str(DATA_PATH)) -> 
 
 
 def get_greeting(current_time: datetime) -> str:
-    """Функция для приветствия"""
     hour = current_time.hour
     logging.debug(f"Определение приветствия по времени: {hour} ч.")
 
     if 5 <= hour < 12:
         return "Доброе утро"
     elif 12 <= hour < 18:
-@@ -56,19 +65,21 @@ def get_greeting(current_time: datetime) -> str:
+        return "Добрый день"
+    elif 18 <= hour < 23:
+        return "Добрый вечер"
+    else:
+        return "Доброй ночи"
 
 
 def get_card_stats(df: pd.DataFrame) -> list[dict]:
-    """Функция для подсчёта по картам с кешбэком 1 рубль за каждые 100 рублей."""
     card_stats = []
     grouped = df[df["amount"] < 0].groupby("card")
 
@@ -73,19 +78,21 @@ def get_card_stats(df: pd.DataFrame) -> list[dict]:
 
 
 def get_top_transactions(df: pd.DataFrame) -> list[dict]:
-    """Функция для топ-5 транзакций по сумме платежа"""
     top_df = df.sort_values(by="payment_amount", key=abs, ascending=False).head(5)
     logging.info("Сформирован топ-5 транзакций")
     return [
         {
             "date": row["date"].strftime("%d.%m.%Y"),
-@@ -82,33 +93,37 @@ def get_top_transactions(df: pd.DataFrame) -> list[dict]:
+            "amount": round(row["payment_amount"], 2),
+            "category": row["category"],
+            "description": row["description"],
+        }
+        for _, row in top_df.iterrows()
+    ]
+
 
 def get_stock_prices(api_key: str | None = None) -> list[dict]:
     if api_key is None:
-        raise RuntimeError("API_KEY not set in environment variables")
-    """Получает цены акций с Alpha Vantage по списку из user_settings.json"""
-    with open(r"C:\Users\PC\PycharmProjects\course_work_1\user_settings.json", "r", encoding="utf-8") as f:
         raise RuntimeError("API_KEY не задано в переменных окружения")
 
     logging.info("Получение цен акций через Alpha Vantage")
@@ -97,8 +104,6 @@ def get_stock_prices(api_key: str | None = None) -> list[dict]:
 
     for symbol in stocks:
         url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={api_key}"
-        response = requests.get(url)
-        data = response.json()
         try:
             response = requests.get(url)
             data = response.json()
@@ -112,12 +117,9 @@ def get_stock_prices(api_key: str | None = None) -> list[dict]:
 
 
 def get_currency_rates() -> list[dict]:
-    """Получает курсы валют из user_settings.json через exchangerate.host"""
-    with open(r"C:\Users\PC\PycharmProjects\course_work_1\user_settings.json", "r", encoding="utf-8") as f:
     logging.info("Получение курсов валют через exchangerate.host")
     with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
         settings = json.load(f)
-    currencies = settings.get("user_currencies", [])
 
     currencies = settings.get("user_currencies", [])
     base_url = "https://api.exchangerate.host/latest?base=RUB"
@@ -125,11 +127,11 @@ def get_currency_rates() -> list[dict]:
     response = requests.get(base_url)
     data = response.json()
     rates = data.get("rates", {})
-@@ -117,15 +132,16 @@ def get_currency_rates() -> list[dict]:
+
+    result = []
     for currency in currencies:
         rate = rates.get(currency)
         if rate:
-            result.append({"currency": currency, "rate": round(1 / rate, 2)})  # RUB → USD (обратный)
             result.append({"currency": currency, "rate": round(1 / rate, 2)})
         else:
             logging.warning(f"Курс для валюты {currency} не найден")
@@ -139,15 +141,20 @@ def get_currency_rates() -> list[dict]:
 
 
 def generate_main_page_data(date_str: str) -> dict:
-    """Главная функция для генерации JSON-ответа по входной дате"""
     logging.info(f"Генерация главной страницы на дату: {date_str}")
     current_date = parse_date(date_str)
     df = filter_operations_by_date(date_str)
 
-@@ -134,7 +150,7 @@ def generate_main_page_data(date_str: str) -> dict:
+    return {
+        "greeting": get_greeting(current_date),
         "cards": get_card_stats(df),
         "top_transactions": get_top_transactions(df),
         "currency_rates": get_currency_rates(),
-        "stock_prices": get_stock_prices(),
         "stock_prices": get_stock_prices(api_key=API_KEY),
     }
+
+
+if __name__ == "__main__":
+    from pprint import pprint
+
+    pprint(generate_main_page_data("2024-12-20 14:30:00"))
