@@ -1,50 +1,95 @@
 import json
-import logging
-from datetime import datetime, timedelta
-from typing import Optional
 
-import pandas as pd
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+from src.services import analyze_cashback_categories, find_phone_transactions, investment_bank
 
 
-def spending_by_weekday(transactions: pd.DataFrame, date: Optional[str] = None) -> str:
-    """
-    Рассчитывает средние траты по каждому дню недели за последние 3 месяца от указанной даты.
-    Если дата не указана, берется текущая дата.
-    """
-    logging.info(f"Запуск отчёта 'Траты по дням недели' с датой: {date or 'текущая дата'}")
+def test_investment_bank_basic() -> None:
+    transactions = [
+        {"Дата операции": "2024-06-01", "Сумма операции": -1712},
+        {"Дата операции": "2024-06-15", "Сумма операции": -2050},
+        {"Дата операции": "2024-05-20", "Сумма операции": -900},
+        {"Дата операции": "2024-06-10", "Сумма операции": 500},
+    ]
+    result = investment_bank("2024-06", transactions, 50)
+    assert result == 38
 
-    if date is None:
-        end_date = datetime.today()
-    else:
-        try:
-            end_date = datetime.strptime(date, "%Y-%m-%d")
-        except ValueError:
-            logging.error("Неверный формат даты. Используйте YYYY-MM-DD.")
-            raise
 
-    start_date = end_date - timedelta(days=90)
+def test_investment_bank_no_transactions() -> None:
+    transactions: list[dict[str, int | str]] = [
+        {"Дата операции": "2024-05-20", "Сумма операции": -900},
+        {"Дата операции": "2024-06-10", "Сумма операции": 500},  # доход
+    ]
+    result = investment_bank("2024-06", transactions, 10)
+    assert result == 0
 
-    if not pd.api.types.is_datetime64_any_dtype(transactions["Дата операции"]):
-        transactions["Дата операции"] = pd.to_datetime(transactions["Дата операции"], errors="coerce")
 
-    filtered = transactions[
-        (transactions["Дата операции"] >= start_date) & (transactions["Дата операции"] <= end_date)
+def test_investment_bank_rounding_100() -> None:
+    transactions = [
+        {"Дата операции": "2024-06-01", "Сумма операции": -320},
+        {"Дата операции": "2024-06-05", "Сумма операции": -450},
+    ]
+    result = investment_bank("2024-06", transactions, 100)
+    assert result == 130
+
+
+def test_investment_bank_positive_transactions() -> None:
+    transactions = [
+        {"Дата операции": "2024-06-01", "Сумма операции": 300},
+        {"Дата операции": "2024-06-02", "Сумма операции": -250},
+    ]
+    result = investment_bank("2024-06", transactions, 10)
+    assert result == 0
+
+
+def test_find_phone_transactions() -> None:
+    transactions = [
+        {"Дата операции": "2024-06-01", "Сумма операции": -500, "Описание": "Я МТС +7 921 11-22-33"},
+        {"Дата операции": "2024-06-02", "Сумма операции": -300, "Описание": "Нет номера"},
+        {"Дата операции": "2024-06-03", "Сумма операции": -450, "Описание": "Тинькофф Мобайл +7 995 555-55-55"},
+    ]
+    result = find_phone_transactions(transactions)
+    parsed = json.loads(result)
+
+    assert len(parsed) == 2
+    assert "+7 921 11-22-33" in parsed[0]["Описание"]
+    assert "+7 995 555-55-55" in parsed[1]["Описание"]
+
+
+def test_analyze_cashback_categories_basic() -> None:
+    data = [
+        {"Дата операции": "2024-06-01", "Сумма операции": -1000, "Категория": "Категория 1"},
+        {"Дата операции": "2024-06-02", "Сумма операции": -2000, "Категория": "Категория 2"},
+        {"Дата операции": "2024-06-15", "Сумма операции": -500, "Категория": "Категория 1"},
+        {"Дата операции": "2024-05-30", "Сумма операции": -700, "Категория": "Категория 3"},
+        {"Дата операции": "2024-06-10", "Сумма операции": 300, "Категория": "Категория 1"},  # доход, не учитываем
     ]
 
-    filtered = filtered[filtered["Сумма операции"] < 0]
+    result_json = analyze_cashback_categories(data, 2024, 6)
+    result = json.loads(result_json)
 
-    filtered["День недели"] = filtered["Дата операции"].dt.day_name(locale="ru_RU.UTF-8")
+    assert isinstance(result, dict)
+    assert result.get("Категория 1") == 1500  # 1000 + 500
+    assert result.get("Категория 2") == 2000
+    assert "Категория 3" not in result  # транзакция в мае — игнорируем
 
-    avg_spending = filtered.groupby("День недели")["Сумма операции"].mean().abs()
 
-    weekdays_order = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
-    avg_spending.index = avg_spending.index.str.lower()
-    avg_spending = avg_spending.reindex(weekdays_order).fillna(0)
+def test_analyze_cashback_categories_no_transactions() -> None:
+    data = [
+        {"Дата операции": "2024-05-01", "Сумма операции": -1000, "Категория": "Категория 1"},
+    ]
 
-    result = avg_spending.round(2).to_dict()
+    result_json = analyze_cashback_categories(data, 2024, 6)
+    result = json.loads(result_json)
+    assert result == {}
 
-    logging.info(f"Средние траты по дням недели: {result}")
 
-    return json.dumps(result, ensure_ascii=False)
+def test_analyze_cashback_categories_positive_amounts_ignored() -> None:
+    data = [
+        {"Дата операции": "2024-06-01", "Сумма операции": 1000, "Категория": "Категория 1"},  # доход
+        {"Дата операции": "2024-06-05", "Сумма операции": -500, "Категория": "Категория 1"},
+    ]
+
+    result_json = analyze_cashback_categories(data, 2024, 6)
+    result = json.loads(result_json)
+
+    assert result.get("Категория 1") == 500
