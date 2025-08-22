@@ -93,3 +93,8 @@ def test_analyze_cashback_categories_positive_amounts_ignored() -> None:
     result = json.loads(result_json)
 
     assert result.get("Категория 1") == 500
+
+
+def test_sample_data_fixture(sample_data):
+    assert "a" in sample_data
+    assert sample_data["a"] == 1
