@@ -32,3 +32,13 @@ def test_spending_by_weekday_basic() -> None:
 
     # Проверяем, что доход (положительная сумма) не учтен
     assert result["суббота"] < 1000
+
+
+import pytest
+
+@pytest.mark.parametrize("input, expected", [
+    ("3+5", 8),
+    ("2+4", 6),
+])
+def test_eval(input, expected):
+    assert eval(input) == expected
